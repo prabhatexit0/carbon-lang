@@ -623,17 +623,22 @@ class ChoiceDeclaration : public Declaration {
   std::vector<Nonnull<AlternativeSignature*>> alternatives_;
 };
 
+// Access modifiers for members of a class.
+enum AccessModifier { Public, Private, Protected };
+
 // Global variable definition implements the Declaration concept.
 class VariableDeclaration : public Declaration {
  public:
   VariableDeclaration(SourceLocation source_loc,
                       Nonnull<BindingPattern*> binding,
                       std::optional<Nonnull<Expression*>> initializer,
-                      ExpressionCategory expression_category)
+                      ExpressionCategory expression_category,
+                      AccessModifier access_modifier = AccessModifier::Public)
       : Declaration(AstNodeKind::VariableDeclaration, source_loc),
         binding_(binding),
         initializer_(initializer),
-        expression_category_(expression_category) {}
+        expression_category_(expression_category),
+        access_modifier_(access_modifier) {}
 
   explicit VariableDeclaration(CloneContext& context,
                                const VariableDeclaration& other)
@@ -655,6 +660,7 @@ class VariableDeclaration : public Declaration {
   }
 
   auto has_initializer() const -> bool { return initializer_.has_value(); }
+  auto access_modifier() const -> AccessModifier { return access_modifier_; }
 
   // Can only be called by type-checking, if a conversion was required.
   void set_initializer(Nonnull<Expression*> initializer) {
@@ -666,6 +672,7 @@ class VariableDeclaration : public Declaration {
   Nonnull<BindingPattern*> binding_;
   std::optional<Nonnull<Expression*>> initializer_;
   ExpressionCategory expression_category_;
+  AccessModifier access_modifier_;
 };
 
 // Base class for constraint and interface declarations. Interfaces and named

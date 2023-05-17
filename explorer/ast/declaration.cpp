@@ -200,6 +200,9 @@ void Declaration::PrintID(llvm::raw_ostream& out) const {
 
     case DeclarationKind::VariableDeclaration: {
       const auto& var = cast<VariableDeclaration>(*this);
+      if (var.access_modifier() == AccessModifier::Private) {
+        out << "private ";
+      }
       out << "var " << var.binding();
       break;
     }
