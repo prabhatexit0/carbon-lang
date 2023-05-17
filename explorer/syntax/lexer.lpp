@@ -127,6 +127,7 @@ VAR                   "var"
 VIRTUAL               "virtual"
 WHERE                 "where"
 WHILE                 "while"
+PRIVATE               "private"
 /* table-end */
 
 /* This should be kept table-like, but isn't automatic due to spaces. */
@@ -243,6 +244,7 @@ operand_start         [(A-Za-z0-9_\"]
 {VIRTUAL}               { return CARBON_SIMPLE_TOKEN(VIRTUAL);               }
 {WHERE}                 { return CARBON_SIMPLE_TOKEN(WHERE);                 }
 {WHILE}                 { return CARBON_SIMPLE_TOKEN(WHILE);                 }
+{PRIVATE}               { return CARBON_SIMPLE_TOKEN(PRIVATE);               }
  /* table-end */
 
  /* More modern Bisons provide make_EOF. */
