@@ -253,8 +253,8 @@ class TypeChecker {
   // declaration. It does not involve type checking statements and
   // (runtime) expressions, as in the body of a function or a method.
   // Dispatches to one of the following functions.
-  auto DeclareDeclaration(Nonnull<Declaration*> d, const ScopeInfo& scope_info)
-      -> ErrorOr<Success>;
+  auto DeclareDeclaration(Nonnull<Declaration*> d, const ScopeInfo& scope_info,
+                          bool is_class_member = false) -> ErrorOr<Success>;
 
   auto DeclareCallableDeclaration(Nonnull<CallableDeclaration*> f,
                                   const ScopeInfo& scope_info)

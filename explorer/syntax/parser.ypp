@@ -1072,20 +1072,6 @@ statement:
           ExpressionCategory::Reference,
           VariableDefinition::DefinitionType::Var);
     }
-| PRIVATE VAR pattern SEMICOLON
-    {
-      $$ = arena->New<VariableDefinition>(
-          context.source_loc(), $[pattern], std::nullopt,
-          ExpressionCategory::Reference,
-          VariableDefinition::DefinitionType::Var);
-    }
-| PRIVATE VAR pattern EQUAL expression SEMICOLON
-    {
-      $$ = arena->New<VariableDefinition>(
-          context.source_loc(), $[pattern], $[expression],
-          ExpressionCategory::Reference,
-          VariableDefinition::DefinitionType::Var);
-    }
 | RETURNED VAR variable_declaration SEMICOLON
     {
       $$ = arena->New<VariableDefinition>(
@@ -1454,13 +1440,13 @@ declaration:
     {
       $$ = arena->New<VariableDeclaration>(
           context.source_loc(), $[variable_declaration], std::nullopt,
-          ExpressionCategory::Reference);
+          ExpressionCategory::Reference, AccessModifier::Private);
     }
 | VAR variable_declaration EQUAL expression SEMICOLON
     {
       $$ = arena->New<VariableDeclaration>(
           context.source_loc(), $[variable_declaration], $[expression],
-          ExpressionCategory::Reference);
+          ExpressionCategory::Reference, AccessModifier::Private);
     }
 | PRIVATE VAR variable_declaration EQUAL expression SEMICOLON
     {

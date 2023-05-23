@@ -6046,8 +6046,8 @@ auto TypeChecker::TypeCheckDeclaration(
 }
 
 auto TypeChecker::DeclareDeclaration(Nonnull<Declaration*> d,
-                                     const ScopeInfo& scope_info)
-    -> ErrorOr<Success> {
+                                     const ScopeInfo& scope_info,
+                                     bool is_class_member) -> ErrorOr<Success> {
   switch (d->kind()) {
     case DeclarationKind::NamespaceDeclaration: {
       auto& namespace_decl = cast<NamespaceDeclaration>(*d);
@@ -6129,6 +6129,12 @@ auto TypeChecker::DeclareDeclaration(Nonnull<Declaration*> d,
       if (!isa<ExpressionPattern>(var.binding().type())) {
         return ProgramError(var.binding().type().source_loc())
                << "Expected expression for variable type";
+      }
+      if (!is_class_member &&
+          (var.access_modifier() == AccessModifier::Private ||
+           var.access_modifier() == AccessModifier::Protected)) {
+        return ProgramError(var.source_loc())
+               << "Non-class members can not have access modifiers";
       }
       CARBON_RETURN_IF_ERROR(TypeCheckPattern(
           &var.binding(), PatternRequirements::Irrefutable, std::nullopt,
