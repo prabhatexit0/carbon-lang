@@ -11,7 +11,6 @@
 #include <optional>
 #include <random>
 #include <utility>
-#include <variant>
 #include <vector>
 
 #include "common/check.h"
@@ -29,8 +28,6 @@
 #include "explorer/interpreter/action.h"
 #include "explorer/interpreter/action_stack.h"
 #include "explorer/interpreter/pattern_match.h"
-#include "explorer/interpreter/stack.h"
-#include "explorer/interpreter/type_utils.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/Casting.h"
@@ -48,160 +45,6 @@ namespace Carbon {
 static constexpr int64_t MaxTodoSize = 1e3;
 static constexpr int64_t MaxStepsTaken = 1e6;
 static constexpr int64_t MaxArenaAllocated = 1e9;
-
-// Constructs an ActionStack suitable for the specified phase.
-static auto MakeTodo(Phase phase, Nonnull<Heap*> heap,
-                     Nonnull<TraceStream*> trace_stream) -> ActionStack {
-  switch (phase) {
-    case Phase::CompileTime:
-      return ActionStack(trace_stream);
-    case Phase::RunTime:
-      return ActionStack(trace_stream, heap);
-  }
-}
-
-// An Interpreter represents an instance of the Carbon abstract machine. It
-// manages the state of the abstract machine, and executes the steps of Actions
-// passed to it.
-class Interpreter {
- public:
-  // Constructs an Interpreter which allocates values on `arena`, and prints
-  // traces if `trace` is true. `phase` indicates whether it executes at
-  // compile time or run time.
-  Interpreter(Phase phase, Nonnull<Arena*> arena,
-              Nonnull<TraceStream*> trace_stream,
-              Nonnull<llvm::raw_ostream*> print_stream)
-      : arena_(arena),
-        heap_(trace_stream, arena),
-        todo_(MakeTodo(phase, &heap_, trace_stream)),
-        trace_stream_(trace_stream),
-        print_stream_(print_stream),
-        phase_(phase) {}
-
-  // Runs all the steps of `action`.
-  // It's not safe to call `RunAllSteps()` or `result()` after an error.
-  auto RunAllSteps(std::unique_ptr<Action> action) -> ErrorOr<Success>;
-
-  // The result produced by the `action` argument of the most recent
-  // RunAllSteps call. Cannot be called if `action` was an action that doesn't
-  // produce results.
-  auto result() const -> Nonnull<const Value*> { return todo_.result(); }
-
- private:
-  auto Step() -> ErrorOr<Success>;
-
-  // State transitions for expressions value generation.
-  auto StepValueExp() -> ErrorOr<Success>;
-  // State transitions for expressions.
-  auto StepExp() -> ErrorOr<Success>;
-  // State transitions for lvalues.
-  auto StepLocation() -> ErrorOr<Success>;
-  // State transitions for witnesses.
-  auto StepWitness() -> ErrorOr<Success>;
-  // State transition for statements.
-  auto StepStmt() -> ErrorOr<Success>;
-  // State transition for declarations.
-  auto StepDeclaration() -> ErrorOr<Success>;
-  // State transition for object destruction.
-  auto StepCleanUp() -> ErrorOr<Success>;
-  auto StepDestroy() -> ErrorOr<Success>;
-  // State transition for type instantiation.
-  auto StepInstantiateType() -> ErrorOr<Success>;
-
-  auto CreateStruct(const std::vector<FieldInitializer>& fields,
-                    const std::vector<Nonnull<const Value*>>& values)
-      -> Nonnull<const Value*>;
-
-  auto EvalPrim(Operator op, Nonnull<const Value*> static_type,
-                const std::vector<Nonnull<const Value*>>& args,
-                SourceLocation source_loc) -> ErrorOr<Nonnull<const Value*>>;
-
-  // Returns the result of converting `value` to type `destination_type`.
-  auto Convert(Nonnull<const Value*> value,
-               Nonnull<const Value*> destination_type,
-               SourceLocation source_loc) -> ErrorOr<Nonnull<const Value*>>;
-
-  // Create a class value and its base class(es) from an init struct.
-  auto ConvertStructToClass(Nonnull<const StructValue*> init,
-                            Nonnull<const NominalClassType*> class_type,
-                            SourceLocation source_loc)
-      -> ErrorOr<Nonnull<const NominalClassValue*>>;
-
-  // Evaluate an expression immediately, recursively, and return its result.
-  //
-  // TODO: Stop using this.
-  auto EvalRecursively(std::unique_ptr<Action> action)
-      -> ErrorOr<Nonnull<const Value*>>;
-
-  // Evaluate an associated constant by evaluating its witness and looking
-  // inside the impl for the corresponding value.
-  //
-  // TODO: This approach doesn't provide values that are known because they
-  // appear in constraints:
-  //
-  //   interface Iface { let N:! i32; }
-  //   fn PickType(N: i32) -> type { return i32; }
-  //   fn F[T:! Iface where .N == 5](x: T) {
-  //     var x: PickType(T.N) = 0;
-  //   }
-  //
-  // ... will fail because we can't resolve T.N to 5 at compile time.
-  auto EvalAssociatedConstant(Nonnull<const AssociatedConstant*> assoc,
-                              SourceLocation source_loc)
-      -> ErrorOr<Nonnull<const Value*>>;
-
-  // Instantiate a type by replacing all type variables that occur inside the
-  // type by the current values of those variables.
-  //
-  // For example, suppose T=i32 and U=bool. Then
-  //     __Fn (Point(T)) -> Point(U)
-  // becomes
-  //     __Fn (Point(i32)) -> Point(bool)
-  //
-  // TODO: This should be an Action.
-  auto InstantiateType(Nonnull<const Value*> type, SourceLocation source_loc)
-      -> ErrorOr<Nonnull<const Value*>>;
-
-  // Instantiate a set of bindings by replacing all type variables that occur
-  // within it by the current values of those variables.
-  auto InstantiateBindings(Nonnull<const Bindings*> bindings,
-                           SourceLocation source_loc)
-      -> ErrorOr<Nonnull<const Bindings*>>;
-
-  // Instantiate a witness by replacing all type variables and impl binding
-  // references that occur within it by the current values of those variables.
-  auto InstantiateWitness(Nonnull<const Witness*> witness,
-                          SourceLocation source_loc)
-      -> ErrorOr<Nonnull<const Witness*>>;
-
-  // Call the function `fun` with the given `arg` and the `witnesses`
-  // for the function's impl bindings.
-  auto CallFunction(const CallExpression& call, Nonnull<const Value*> fun,
-                    Nonnull<const Value*> arg, ImplWitnessMap&& witnesses,
-                    std::optional<AllocationId> location_received)
-      -> ErrorOr<Success>;
-
-  auto CallDestructor(Nonnull<const DestructorDeclaration*> fun,
-                      Nonnull<const Value*> receiver) -> ErrorOr<Success>;
-
-  auto phase() const -> Phase { return phase_; }
-
-  Nonnull<Arena*> arena_;
-
-  Heap heap_;
-  ActionStack todo_;
-
-  Nonnull<TraceStream*> trace_stream_;
-
-  // The stream for the Print intrinsic.
-  Nonnull<llvm::raw_ostream*> print_stream_;
-
-  Phase phase_;
-
-  // The number of steps taken by the interpreter. Used for infinite loop
-  // detection.
-  int64_t steps_taken_ = 0;
-};
 
 //
 // State Operations
@@ -354,10 +197,12 @@ auto Interpreter::StepLocation() -> ErrorOr<Success> {
         }
         CARBON_CHECK(!access.member().interface().has_value())
             << "unexpected location interface member";
+        std::optional<Nonnull<const Value*>> base_type =
+            access.member().base_type();
+        CARBON_CHECK(base_type);
         CARBON_ASSIGN_OR_RETURN(
             Nonnull<const Value*> val,
-            Convert(act.results()[0], *access.member().base_type(),
-                    exp.source_loc()));
+            Convert(act.results()[0], *base_type, exp.source_loc()));
         Address object = cast<LocationValue>(*val).address();
         Address field = object.ElementAddress(&access.member().member());
         return todo_.FinishAction(arena_->New<LocationValue>(field));
@@ -601,7 +446,7 @@ auto Interpreter::ConvertStructToClass(
   }
   CARBON_CHECK(!cast<NominalClassType>(inst_class)->base() || base_instance)
       << "Invalid conversion for `" << *inst_class << "`: base class missing";
-  auto* converted_init_struct =
+  const auto* converted_init_struct =
       arena_->New<StructValue>(std::move(struct_values));
   Nonnull<const NominalClassValue** const> class_value_ptr =
       base_instance ? (*base_instance)->class_value_ptr()
@@ -863,18 +708,18 @@ auto Interpreter::CallDestructor(Nonnull<const DestructorDeclaration*> fun,
     return ProgramError(fun->source_loc())
            << "destructors currently don't support `addr self` bindings";
   }
-  if (auto& value_node = placeholder->value_node()) {
+  if (const auto& value_node = placeholder->value_node()) {
     if (value_node->expression_category() == ExpressionCategory::Value) {
-      method_scope.BindValue(*placeholder->value_node(), receiver);
+      method_scope.BindValue(*value_node, receiver);
     } else {
       CARBON_FATAL()
           << "TODO: [self addr: Self*] destructors not implemented yet";
     }
   }
-  CARBON_CHECK(method.body().has_value())
-      << "Calling a method that's missing a body";
+  std::optional<Nonnull<const Block*>> body = method.body();
+  CARBON_CHECK(body) << "Calling a method that's missing a body";
 
-  auto act = std::make_unique<StatementAction>(*method.body(), std::nullopt);
+  auto act = std::make_unique<StatementAction>(*body, std::nullopt);
   return todo_.Spawn(std::unique_ptr<Action>(std::move(act)),
                      std::move(method_scope));
 }
@@ -1352,7 +1197,7 @@ auto Interpreter::StepExp() -> ErrorOr<Success> {
             CARBON_CHECK(!access.member().base_type().has_value())
                 << "compound member access forming a member name should be "
                    "performing impl lookup";
-            auto* member_name =
+            const auto* member_name =
                 arena_->New<MemberName>(act.results()[0], found_in_interface,
                                         &access.member().member());
             return todo_.FinishAction(member_name);
@@ -1698,7 +1543,7 @@ auto Interpreter::StepExp() -> ErrorOr<Success> {
               exp.source_loc(), ".Self",
               arena_->New<TypeTypeLiteral>(exp.source_loc()),
               GenericBinding::BindingKind::Checked);
-          auto* self = arena_->New<VariableType>(self_binding);
+          const auto* self = arena_->New<VariableType>(self_binding);
           auto* impl_binding = arena_->New<ImplBinding>(
               exp.source_loc(), self_binding, std::nullopt);
           impl_binding->set_symbolic_identity(
@@ -1710,7 +1555,7 @@ auto Interpreter::StepExp() -> ErrorOr<Success> {
               .type = self,
               .kind = IntrinsicConstraint::ImplicitAs,
               .arguments = args};
-          auto* result = arena_->New<ConstraintType>(
+          const auto* result = arena_->New<ConstraintType>(
               self_binding, std::vector<ImplsConstraint>{},
               std::vector<IntrinsicConstraint>{std::move(constraint)},
               std::vector<EqualityConstraint>{},
@@ -1726,14 +1571,14 @@ auto Interpreter::StepExp() -> ErrorOr<Success> {
           CARBON_CHECK(args.size() == 2);
           auto lhs = cast<IntValue>(*args[0]).value();
           auto rhs = cast<IntValue>(*args[1]).value();
-          auto* result = arena_->New<BoolValue>(lhs == rhs);
+          const auto* result = arena_->New<BoolValue>(lhs == rhs);
           return todo_.FinishAction(result);
         }
         case IntrinsicExpression::Intrinsic::StrEq: {
           CARBON_CHECK(args.size() == 2);
           const auto& lhs = cast<StringValue>(*args[0]).value();
           const auto& rhs = cast<StringValue>(*args[1]).value();
-          auto* result = arena_->New<BoolValue>(lhs == rhs);
+          const auto* result = arena_->New<BoolValue>(lhs == rhs);
           return todo_.FinishAction(result);
         }
         case IntrinsicExpression::Intrinsic::IntCompare: {
@@ -1741,14 +1586,14 @@ auto Interpreter::StepExp() -> ErrorOr<Success> {
           auto lhs = cast<IntValue>(*args[0]).value();
           auto rhs = cast<IntValue>(*args[1]).value();
           if (lhs < rhs) {
-            auto* result = arena_->New<IntValue>(-1);
+            const auto* result = arena_->New<IntValue>(-1);
             return todo_.FinishAction(result);
           }
           if (lhs == rhs) {
-            auto* result = arena_->New<IntValue>(0);
+            const auto* result = arena_->New<IntValue>(0);
             return todo_.FinishAction(result);
           }
-          auto* result = arena_->New<IntValue>(1);
+          const auto* result = arena_->New<IntValue>(1);
           return todo_.FinishAction(result);
         }
         case IntrinsicExpression::Intrinsic::StrCompare: {
@@ -1756,14 +1601,14 @@ auto Interpreter::StepExp() -> ErrorOr<Success> {
           const auto& lhs = cast<StringValue>(*args[0]).value();
           const auto& rhs = cast<StringValue>(*args[1]).value();
           if (lhs < rhs) {
-            auto* result = arena_->New<IntValue>(-1);
+            const auto* result = arena_->New<IntValue>(-1);
             return todo_.FinishAction(result);
           }
           if (lhs == rhs) {
-            auto* result = arena_->New<IntValue>(0);
+            const auto* result = arena_->New<IntValue>(0);
             return todo_.FinishAction(result);
           }
-          auto* result = arena_->New<IntValue>(1);
+          const auto* result = arena_->New<IntValue>(1);
           return todo_.FinishAction(result);
         }
         case IntrinsicExpression::Intrinsic::IntBitComplement: {
@@ -2472,7 +2317,7 @@ auto Interpreter::StepCleanUp() -> ErrorOr<Success> {
       return todo_.RunAgain();
     }
     if (act.pos() % 2 == 0) {
-      auto* location = arena_->New<LocationValue>(Address(allocation));
+      const auto* location = arena_->New<LocationValue>(Address(allocation));
       auto value = heap_.Read(location->address(), *cleanup.source_loc());
       // Step over uninitialized values.
       if (value.ok()) {
